@@ -1,5 +1,8 @@
-#Version 2.0 beta
+#Forked from Version 2.0 beta
 #July 2020
+
+#CMS mod V1.0
+#March 2022
 
 # Define UI ----
 ui <- fluidPage(
@@ -17,6 +20,8 @@ ui <- fluidPage(
       numericInput("num", label = "Clustering Threshold", value = 0.5),
       fileInput("file6", label = "Clusters File"),
       radioButtons("radio2", label = "Hub Connection", choices = c("Yes","No")),
+      radioButtons("radio3", label = "Edge Trimming Method", choices = c("Default","Custom")),
+      numericInput("num2", "Percentage of edges to keep", value = 10),
       actionButton("action", label = "Run")
     ),
     mainPanel(h3("Input files"),
@@ -77,7 +82,8 @@ server <- function(input, output) {
       SCION(target_genes_file=input$file3$datapath,reg_genes_file=input$file4$datapath,
             target_data_file=input$file$datapath,reg_data_file=input$file2$datapath,
             is_clustering=input$radio, clusters_file=input$file6$datapath, hubs=input$radio2,
-            clustering_data_file=input$file5$datapath,threshold=input$num,working_dir=input$text)
+            clustering_data_file=input$file5$datapath,threshold=input$num,working_dir=input$text,
+            edgeTrim=input$radio3,trimThresh=input$num2)
     }
   })
 }

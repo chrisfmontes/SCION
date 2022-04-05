@@ -1,10 +1,13 @@
-#Version 2.0 beta
+#Forked from Version 2.0 beta
 #July 2020
 
+#CMS mod V1.0
+#March 2022
+
 SCION <- function(target_genes_file,reg_genes_file,target_data_file,reg_data_file,
-                  is_clustering,clustering_data_file,threshold,clusters_file,hubs,working_dir){
-  
-  #set working directory which contains all your input files
+                  is_clustering,clustering_data_file,threshold,clusters_file,hubs,working_dir,edgeTrim,trimThresh){
+
+    #set working directory which contains all your input files
   setwd(working_dir)
 
   #if clustering, create folders
@@ -15,6 +18,7 @@ SCION <- function(target_genes_file,reg_genes_file,target_data_file,reg_data_fil
   }
 
   #read in tables
+
   target_genes = read.csv(target_genes_file,stringsAsFactors=FALSE)
   reg_genes = read.csv(reg_genes_file,stringsAsFactors=FALSE)
   target_data = read.csv(target_data_file,row.names=1)
@@ -37,7 +41,7 @@ SCION <- function(target_genes_file,reg_genes_file,target_data_file,reg_data_fil
   }else if (is_clustering=="Non-Temporal"){
     clusterresults <- ica_clustering(myclustdata,threshold)
   }else if (is_clustering=="Upload"){
-    clusterresults <- read.csv(clusters_file,row.names=1)
+    clusterresults <- read.csv(clusters_file,row.names=1, stringsAsFactors = FALSE)
   }
   
   #infer a network using GENIE3 on each cluster
@@ -58,7 +62,7 @@ SCION <- function(target_genes_file,reg_genes_file,target_data_file,reg_data_fil
     } else{
       edgestokeep = floor(2*dim(clustertargetdata)[1])
     }
-    
+
     #get the weight threshold that corresponds to this number of edges to keep
     allweights = stack(data.frame(network))
     allweights = allweights[order(allweights[,1],decreasing=TRUE),1]
@@ -71,23 +75,32 @@ SCION <- function(target_genes_file,reg_genes_file,target_data_file,reg_data_fil
     }
     
     #now make a new network where we eliminate all the low confidence edges
-    trimmednet = data.frame(ifelse(network<weightthreshold,NaN,network))
-    
-    #translate the trimmed network into a table we can import into cytoscape
-    networktable = data.frame(Regulator=character(), Interaction=character(), Target=character(), Weight=double(),
-                              stringsAsFactors=FALSE)
-    row=1
-    for (j in 1:dim(trimmednet)[1]){
-      print(j)
-      for (k in 1:dim(trimmednet)[2]){
-        #skip NaNs as these have no edge
-        if (is.na(trimmednet[j,k])){
-          next
-        }else{
-          networktable[row,] = cbind(colnames(trimmednet)[k],"regulates",rownames(trimmednet)[j],trimmednet[j,k])
-          row = row+1
+    if (edgeTrim == "Default") {
+      trimmednet = data.frame(ifelse(network<weightthreshold,NaN,network))
+      #translate the trimmed network into a table we can import into cytoscape
+      networktable = data.frame(Regulator=character(), Interaction=character(), Target=character(), Weight=double(),
+                                stringsAsFactors=FALSE)
+      row=1
+      for (j in 1:dim(trimmednet)[1]){
+        for (k in 1:dim(trimmednet)[2]){
+          #skip NaNs as these have no edge
+          if (is.na(trimmednet[j,k])){
+            next
+          }else{
+            networktable[row,] = cbind(colnames(trimmednet)[k],"regulates",rownames(trimmednet)[j],trimmednet[j,k])
+            row = row+1
+          }
         }
       }
+      
+    } else {
+      network %>%
+        as.data.frame() %>%
+        rownames_to_column(var = "Target") %>%
+        pivot_longer(!Target, names_to = "Regulator", values_to = "Weight") %>%
+        mutate(Interaction = "regulates") %>%
+        relocate(Regulator, Interaction, Target, Weight) %>%
+        top_frac(n = trimThresh*0.01, wt = Weight) -> networktable
     }
     
     #if there are . in the networktable, replace them with - (for phospho)
@@ -134,23 +147,33 @@ SCION <- function(target_genes_file,reg_genes_file,target_data_file,reg_data_fil
         weightthreshold = allweights[edgestokeep]
       }
       
-      #now make a new network where we eliminate all the low confidence edges
-      trimmednet = data.frame(ifelse(network<weightthreshold,NaN,network))
-      
-      #translate the trimmed network into a table we can import into cytoscape
-      networktable = data.frame(Regulator=character(), Interaction=character(), Target=character(), Weight=double(),
-                                stringsAsFactors=FALSE)
-      row=1
-      for (j in 1:dim(trimmednet)[1]){
-        for (k in 1:dim(trimmednet)[2]){
-          #skip NaNs as these have no edge
-          if (is.na(trimmednet[j,k])){
-            next
-          }else{
-            networktable[row,] = cbind(colnames(trimmednet)[k],"regulates",rownames(trimmednet)[j],trimmednet[j,k])
-            row = row+1
+      #now make a new network where we eliminate all the low confidence edges depending on the user-seleced method
+      if (edgeTrim == "Default") {
+        trimmednet = data.frame(ifelse(network<weightthreshold,NaN,network))
+        #translate the trimmed network into a table we can import into cytoscape
+        networktable = data.frame(Regulator=character(), Interaction=character(), Target=character(), Weight=double(),
+                                  stringsAsFactors=FALSE)
+        row=1
+        for (j in 1:dim(trimmednet)[1]){
+          for (k in 1:dim(trimmednet)[2]){
+            #skip NaNs as these have no edge
+            if (is.na(trimmednet[j,k])){
+              next
+            }else{
+              networktable[row,] = cbind(colnames(trimmednet)[k],"regulates",rownames(trimmednet)[j],trimmednet[j,k])
+              row = row+1
+            }
           }
         }
+
+      } else {
+        network %>%
+          as.data.frame() %>%
+          rownames_to_column(var = "Target") %>%
+          pivot_longer(!Target, names_to = "Regulator", values_to = "Weight") %>%
+          mutate(Interaction = "regulates") %>%
+          relocate(Regulator, Interaction, Target, Weight) %>%
+          top_frac(n = trimThresh*0.01, wt = Weight) -> networktable
       }
       
       #if there are . in the networktable, replace them with - (for phospho)
@@ -199,22 +222,34 @@ SCION <- function(target_genes_file,reg_genes_file,target_data_file,reg_data_fil
         weightthreshold = allweights[edgestokeep]
         
         #now make a new network where we eliminate all the low confidence edges
-        trimmednet = data.frame(ifelse(network<weightthreshold,NaN,network))
         
-        #translate the trimmed network into a table we can import into cytoscape
-        networktable = data.frame(Regulator=character(), Interaction=character(), Target=character(), Weight=double(),
-                                  stringsAsFactors=FALSE)
-        row=1
-        for (j in 1:dim(trimmednet)[1]){
-          for (k in 1:dim(trimmednet)[2]){
-            #skip NaNs as these have no edge
-            if (is.na(trimmednet[j,k])){
-              next
-            }else{
-              networktable[row,] = cbind(colnames(trimmednet)[k],"regulates",rownames(trimmednet)[j],trimmednet[j,k])
-              row = row+1
+        
+        if (edgeTrim == "Default") {
+          trimmednet = data.frame(ifelse(network<weightthreshold,NaN,network))
+          #translate the trimmed network into a table we can import into cytoscape
+          networktable = data.frame(Regulator=character(), Interaction=character(), Target=character(), Weight=double(),
+                                    stringsAsFactors=FALSE)
+          row=1
+          for (j in 1:dim(trimmednet)[1]){
+            for (k in 1:dim(trimmednet)[2]){
+              #skip NaNs as these have no edge
+              if (is.na(trimmednet[j,k])){
+                next
+              }else{
+                networktable[row,] = cbind(colnames(trimmednet)[k],"regulates",rownames(trimmednet)[j],trimmednet[j,k])
+                row = row+1
+              }
             }
           }
+          
+        } else {
+          network %>%
+            as.data.frame() %>%
+            rownames_to_column(var = "Target") %>%
+            pivot_longer(!Target, names_to = "Regulator", values_to = "Weight") %>%
+            mutate(Interaction = "regulates") %>%
+            relocate(Regulator, Interaction, Target, Weight) %>%
+            top_frac(n = trimThresh*0.01, wt = Weight) -> networktable
         }
       }
       
